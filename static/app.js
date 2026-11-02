@@ -117,7 +117,7 @@ async function uploadOne(file) {
   } catch {}
 
   const fd = new FormData();
-  fd.append("file", file);
+  fd.append("files", file);          // сервер очікує поле `files` (list[UploadFile])
   if (state.sessionId) fd.append("session", state.sessionId);
 
   try {
@@ -125,7 +125,10 @@ async function uploadOne(file) {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
       node.remove();
-      pushError(`${file.name}: ${data.detail || "помилка завантаження"}`);
+      const det = typeof data.detail === "string"
+        ? data.detail
+        : "сервер відхилив файл (невірний запит)";
+      pushError(`${file.name}: ${det}`);
       return;
     }
     if (data.errors && data.errors.length) {
