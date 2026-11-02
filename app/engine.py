@@ -243,7 +243,7 @@ class Engine:
         else:
             self.provider = "cpu"
             self.device_label = f"CPU ({os.cpu_count() or 4} потоків)"
-        self.dml_dev: int | None = None              # обраний адаптер
+        self.dml_pick: dict[str, tuple[int, str]] = {}  # модель → (адаптер, файл)
         self.tile = config.DEVICE_TILE.get(self.provider, 384)
         self._sessions: dict[str, dict] = {}
         self._lock = threading.Lock()
@@ -257,46 +257,113 @@ class Engine:
             so.intra_op_num_threads = max(2, min(8, os.cpu_count() or 4))
         return so
 
-    def _providers_for(self) -> list:
+    def _providers_for(self, dev: int | None = None) -> list:
         if self.provider == "dml":
-            if self.dml_dev is None:
+            if dev is None:
                 return ["DmlExecutionProvider"]
-            return [("DmlExecutionProvider", {"device_id": self.dml_dev})]
+            return [("DmlExecutionProvider", {"device_id": dev})]
         if self.provider == "cuda":
             return ["CUDAExecutionProvider"]
         return ["CPUExecutionProvider"]
 
-    def _bench_dml(self, path: Path) -> tuple[int, float] | None:
-        """Обирає найшвидший *реально доступний* адаптер DirectML (id 0/1)."""
-        best: tuple[int, float] | None = None
-        for dev in (0, 1):
+    def _bench_dml(self, path: Path, dev: int, px: int) -> float | None:
+        """Реальний замір тайла px×px на адаптері DirectML dev (None — не вдається)."""
+        try:
+            so = ort.SessionOptions()
+            so.log_severity_level = 3
+            s = ort.InferenceSession(
+                str(path), so,
+                providers=[("DmlExecutionProvider", {"device_id": dev})])
+            # ORT при невалідному device_id мовчки будує CPU-сесію —
+            # тому обов'язково перевіряємо, який провайдер вийшов.
+            if "DmlExecutionProvider" not in s.get_providers():
+                return None
+            name = s.get_inputs()[0].name
+            x = np.zeros((1, 3, px, px), np.float32)
             try:
-                so = ort.SessionOptions()
-                so.log_severity_level = 3
-                s = ort.InferenceSession(
-                    str(path), so,
-                    providers=[("DmlExecutionProvider", {"device_id": dev})])
-                # ORT при невалідному device_id мовчки будує CPU-сесію —
-                # тому обов'язково перевіряємо, який провайдер вийшов.
-                if "DmlExecutionProvider" not in s.get_providers():
-                    continue
-                name = s.get_inputs()[0].name
-                x = np.zeros((1, 3, 128, 128), np.float32)
-                s.run(None, {name: x})                 # компіляція шейдерів
+                for _ in range(3):
+                    s.run(None, {name: x})           # прогрів/компіляція шейдерів
+            except Exception:
+                return None                          # бракує пам'яті адаптера
+            best = float("inf")
+            for _ in range(4):
                 t0 = time.time()
                 s.run(None, {name: x})
-                dt = time.time() - t0
-                if best is None or dt < best[1]:
-                    best = (dev, dt)
-            except Exception:
-                continue
-        return best
+                best = min(best, time.time() - t0)
+            return best if best < 60.0 else None
+        except Exception:
+            return None
+
+    def _pick_dml_variant(self, spec: dict,
+                          progress: ProgressCb) -> tuple[int, str] | None:
+        """Заміром на реальному розмірі тайла обирає (адаптер, файл) для моделі.
+
+        Різні GPU абсолютно по-різному працюють з різними варіантами ваг
+        (наприклад, iGPU швидкий у fp16, але програє дискретній карті у
+        fp32), тож вибір робиться лише за фактичним заміром.
+        """
+        seen: list[str] = []
+        for variant in ("gpu", "cpu"):
+            fname = spec["files"].get(variant)
+            if fname and fname not in seen:
+                seen.append(fname)
+        candidates: list[tuple[float, int, str]] = []
+        progress(PHASE_DOWNLOAD, 30, "вимірювання швидкості адаптерів GPU…")
+        n_devs = 2
+        for i, fname in enumerate(seen):
+            self._ensure_file(spec, fname, progress)
+            path = config.MODELS_DIR / fname
+            for dev in (0, 1):
+                progress(PHASE_DOWNLOAD, 30 + (i * n_devs + (dev + 1)) * 60
+                         / (len(seen) * n_devs),
+                         f"замір адаптера {dev}…")
+                dt = self._bench_dml(path, dev, self.tile)
+                if dt is not None:
+                    candidates.append((dt, dev, fname))
+        if not candidates:
+            return None
+        candidates.sort()
+        dt, dev, fname = candidates[0]
+        return dev, fname
+
+    def _ensure_file(self, spec: dict, fname: str,
+                     progress: ProgressCb) -> None:
+        meta = spec["files_meta"][fname]
+        path = config.MODELS_DIR / fname
+        if not path.exists():
+            _download_file(meta["url"], path, meta.get("sha256"), progress)
+
+    def _update_gpu_label(self) -> None:
+        if self.provider != "dml" or not self.dml_pick:
+            return
+        devs = sorted({dev for dev, _f in self.dml_pick.values()})
+        if len(devs) == 1:
+            self.device_label = f"GPU · DirectML (адаптер {devs[0]})"
+        else:
+            self.device_label = "GPU · DirectML (адаптери " \
+                + "+".join(map(str, devs)) + ")"
 
     def _switch_to_cpu(self) -> None:
         self.provider = "cpu"
         self.device_label = f"CPU ({os.cpu_count() or 4} потоків)"
         self.tile = config.DEVICE_TILE.get("cpu", 384)
         self._sessions.clear()
+
+    def _cpu_or_cuda_session(self, spec: dict, progress: ProgressCb
+                             ) -> "ort.InferenceSession":
+        variant = "gpu" if self.provider == "cuda" else "cpu"
+        fname = spec["files"][variant]
+        meta = spec["files_meta"][fname]
+        path = config.MODELS_DIR / fname
+        if not path.exists():
+            _download_file(meta["url"], path, meta.get("sha256"), progress)
+        progress(PHASE_DOWNLOAD, 100, "збірка сесії…")
+        try:
+            return ort.InferenceSession(str(path), self._session_options(),
+                                        providers=self._providers_for())
+        except Exception as exc:
+            raise UserError(
+                f"Не вдалося підготувати модель апскейлу: {exc}") from exc
 
     def get_session(self, key: str, progress: ProgressCb
                     ) -> tuple["ort.InferenceSession", str, str, int]:
@@ -307,67 +374,48 @@ class Engine:
                 return (cached["sess"], cached["in"], cached["out"], cached["scale"])
 
             spec = config.MODEL_SPECS[key]
-            variant = "gpu" if self.provider in ("dml", "cuda") else "cpu"
-            fname = spec["files"][variant]
-            meta = spec["files_meta"][fname]
-            path = config.MODELS_DIR / fname
-            if not path.exists():
-                _download_file(meta["url"], path, meta.get("sha256"), progress)
-            progress(PHASE_DOWNLOAD, 100, f"{spec['title']} · збірка сесії…")
 
-            # пряма перевірка адаптера DirectML на першій сесії
-            if self.provider == "dml" and self.dml_dev is None:
-                pick = self._bench_dml(path)
+            if self.provider == "dml":
+                pick = self.dml_pick.get(key)
+                if pick is None:
+                    pick = self._pick_dml_variant(spec, progress)
+                    if pick is None:
+                        # жоден адаптер не працює — переходимо на CPU
+                        self._switch_to_cpu()
+                    else:
+                        self.dml_pick[key] = pick
                 if pick is not None:
-                    self.dml_dev = pick[0]
-                else:
-                    self._switch_to_cpu()
-                    variant = "cpu"
-                    fname = spec["files"]["cpu"]
-                    meta = spec["files_meta"][fname]
+                    dev, fname = pick
+                    self._ensure_file(spec, fname, progress)
                     path = config.MODELS_DIR / fname
-                    if not path.exists():
-                        _download_file(meta["url"], path, meta.get("sha256"), progress)
-                    progress(PHASE_DOWNLOAD, 100, f"{spec['title']} · збірка сесії…")
-
-            try:
-                sess = ort.InferenceSession(str(path), self._session_options(),
-                                            providers=self._providers_for())
-                if (self.provider == "dml"
-                        and "DmlExecutionProvider" not in sess.get_providers()):
-                    # ORT мовчки підмінив DML-сесію CPU — перемикаємось явно
-                    raise RuntimeError("сесія DirectML не активувалась")
-            except Exception as exc:
-                if self.provider == "dml":
-                    self._switch_to_cpu()
-                    variant = "cpu"
-                    fname = spec["files"]["cpu"]
-                    meta = spec["files_meta"][fname]
-                    path = config.MODELS_DIR / fname
-                    if not path.exists():
-                        _download_file(meta["url"], path, meta.get("sha256"),
-                                       progress)
-                    progress(PHASE_DOWNLOAD, 100,
-                             f"{spec['title']} · CPU-збірка сесії…")
+                    progress(PHASE_DOWNLOAD, 100, "збірка сесії…")
                     try:
                         sess = ort.InferenceSession(
                             str(path), self._session_options(),
-                            providers=self._providers_for())
-                    except Exception as exc2:
-                        raise UserError("Не вдалося підготувати модель "
-                                        f"апскейлу: {exc2}") from exc2
-                else:
-                    raise UserError(
-                        f"Не вдалося підготувати модель апскейлу: {exc}"
-                    ) from exc
+                            providers=self._providers_for(dev))
+                        if "DmlExecutionProvider" not in sess.get_providers():
+                            # ORT мовчки підмінив DML-сесію CPU — зриваємо явно
+                            raise RuntimeError("сесія DirectML не активувалась")
+                        in_name = sess.get_inputs()[0].name
+                        out_name = sess.get_outputs()[0].name
+                        self._sessions[key] = {
+                            "sess": sess, "in": in_name, "out": out_name,
+                            "scale": spec["scale"],
+                        }
+                        self._update_gpu_label()
+                        return sess, in_name, out_name, spec["scale"]
+                    except Exception:
+                        # адаптер зламався вже після заміру — запасний CPU
+                        self.dml_pick.pop(key, None)
+                        self._sessions.clear()
+                        self._switch_to_cpu()
 
+            sess = self._cpu_or_cuda_session(spec, progress)
             in_name = sess.get_inputs()[0].name
             out_name = sess.get_outputs()[0].name
             self._sessions[key] = {
                 "sess": sess, "in": in_name, "out": out_name, "scale": spec["scale"],
             }
-            if self.provider == "dml":
-                self.device_label = f"GPU · DirectML (адаптер {self.dml_dev})"
             return sess, in_name, out_name, spec["scale"]
 
     # ------------------------- пайплайн -------------------------
@@ -430,9 +478,9 @@ class Engine:
 
             sess, in_name, out_name, mscale = self.get_session(key, dl_cb)
 
-            def note(jpct: float, txt: str, _i=i, _m: int = mscale) -> None:
+            def note(jpct: float, txt: str, _i=i, _n=n, _m: int = mscale) -> None:
                 progress(PHASE_UPSCALE, 8 + (_i + jpct / 100.0) * 87.0 / n,
-                         f"Модель {_m}× · {txt}")
+                         f"Модель {_m}× · етап {_i + 1} з {_n} · {txt}")
 
             canvas = _tiled_inference(canvas, sess, in_name, out_name, mscale,
                                       self.tile, config.TILE_OVERLAP, note)

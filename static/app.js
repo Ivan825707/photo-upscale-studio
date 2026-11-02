@@ -351,7 +351,7 @@ function showResult(p) {
     </div>
     <div class="compare">
       <img class="c-after" alt="після" src="/api/results/${sid}/${p.id}/preview">
-      <div class="c-before-wrap"><img class="c-before" alt="до" src="/api/photos/${sid}/${p.id}/orig-preview"></div>
+      <img class="c-before" alt="до" src="/api/photos/${sid}/${p.id}/orig-preview">
       <span class="c-tag before">до</span><span class="c-tag after">після</span>
       <div class="c-handle" style="left:50%"></div>
     </div>
@@ -370,12 +370,11 @@ function showResult(p) {
   setRatio();
 
   let pos = 50;
-  const wrap = $(".c-before-wrap", card);
   const handle = $(".c-handle", card);
   const move = (clientX) => {
     const r = compare.getBoundingClientRect();
     pos = Math.min(100, Math.max(0, ((clientX - r.left) / r.width) * 100));
-    wrap.style.width = pos + "%";
+    compare.style.setProperty("--pos", pos + "%");
     handle.style.left = pos + "%";
   };
   compare.addEventListener("pointermove", (e) => { if (e.buttons || e.pointerType === "touch") move(e.clientX); });
