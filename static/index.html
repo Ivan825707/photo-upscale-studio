@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Photo Upscale Studio — якісний апскейл фото до 8×</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%235b6cff'/%3E%3Cpath d='M14 44 26 28l8 10 6-8 10 14z' fill='white'/%3E%3Ccircle cx='20' cy='18' r='5' fill='white'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<main class="wrap">
+
+  <header class="top">
+    <div>
+      <h1>Photo Upscale Studio</h1>
+      <p class="sub">Якісне збільшення фотографій до 8× — нейромережею Real-ESRGAN, локально на вашому ПК</p>
+    </div>
+    <div class="top-right">
+      <span id="deviceBadge" class="chip" title="Пристрій обчислень">…</span>
+      <button id="resetBtn" class="chip link hidden" type="button">Нова сесія</button>
+    </div>
+  </header>
+
+  <section id="errorBox" class="errbox hidden" role="alert"></section>
+
+  <!-- Крок 1: завантаження фото -->
+  <section id="dropzone" class="drop">
+    <svg class="drop-icon" viewBox="0 0 64 64" aria-hidden="true">
+      <path d="M20 50h26a10 10 0 0 0 2-19.8A14 14 0 0 0 20 22a11 11 0 0 0 0 28z" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/>
+      <path d="M32 46V30m0 0-6 6m6-6 6 6" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <h2>Перетягніть сюди від 1 до <span class="max-photos">5</span> фотографій</h2>
+    <p class="muted">JPG · PNG · WEBP &nbsp;—&nbsp; або</p>
+    <button id="pickBtn" class="btn" type="button">Вибрати файли…</button>
+    <p class="hint muted">Можна також вставити зображення через <b>Ctrl+V</b>. Фото не покидають ваш комп'ютер.</p>
+    <input id="fileInput" type="file" multiple accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" hidden>
+  </section>
+
+  <!-- Крок 2: прев'ю та налаштування -->
+  <section id="editorPanel" class="panel hidden">
+    <div class="panel-row">
+      <h3>Завантажені фото</h3>
+      <span id="counter" class="muted"></span>
+    </div>
+    <div id="gallery" class="thumbs"></div>
+
+    <div class="settings">
+      <div class="setting">
+        <label for="scaleSlide">Збільшення: <b id="scaleVal">8×</b></label>
+        <input id="scaleSlide" type="range" min="1" max="8" step="1" value="8">
+        <div id="scaleHint" class="hint muted"></div>
+      </div>
+      <div class="setting">
+        <label for="fmtSel">Формат результату</label>
+        <select id="fmtSel">
+          <option value="jpeg" selected>JPG (фото, невеликий файл)</option>
+          <option value="png">PNG (без втрат, великий файл)</option>
+          <option value="webp">WEBP (компроміс)</option>
+        </select>
+        <div class="hint muted">Якість: JPG/WEBP 95.</div>
+      </div>
+      <button id="startBtn" class="btn primary big" type="button">Старт</button>
+    </div>
+  </section>
+
+  <!-- Крок 3: прогрес -->
+  <section id="progressPanel" class="panel hidden">
+    <div class="panel-row">
+      <h3>Прогрес обробки</h3>
+      <span id="progressSummary" class="muted"></span>
+    </div>
+    <div id="progressList" class="list"></div>
+  </section>
+
+  <!-- Крок 4: результати -->
+  <section id="resultsPanel" class="hidden">
+    <div class="panel-row">
+      <h3>Результати</h3>
+      <a id="zipLink" class="btn big hidden" href="#" download>⬇&nbsp;Завантажити всі одним архівом (ZIP)</a>
+    </div>
+    <div id="resultsList" class="results"></div>
+  </section>
+
+  <footer class="foot muted">
+    Real-ESRGAN (RRDBNet) · роботи виконуються локально · перше фото може довше завантажувати модель (~135 МБ)
+  </footer>
+</main>
+
+<template id="tplUploadCard">
+  <div class="thumb-card">
+    <div class="thumb-media"><span class="spinner"></span></div>
+    <div class="thumb-name"></div>
+    <div class="thumb-meta muted"></div>
+    <button class="thumb-remove" title="Видалити" type="button">✕</button>
+  </div>
+</template>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

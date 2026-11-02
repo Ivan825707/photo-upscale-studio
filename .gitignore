@@ -1,0 +1,39 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- віртуальне оточення ---
+.venv/
+venv/
+env/
+
+# --- ваги моделей (завантажуються автоматично при першому запуску) ---
+models/
+*.pth
+*.onnx
+*.pt
+*.ckpt
+
+# --- користувацькі дані (завантажені фото та результати) ---
+data/
+
+# --- чернеткові порівняння/бенчмарки ---
+tests_out/
+
+# --- IDE / ОС ---
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- логи ---
+*.log

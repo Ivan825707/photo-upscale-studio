@@ -1,0 +1,14 @@
+# Photo Upscale Studio — залежності (Python 3.10+)
+# Windows: onnxruntime-directml використовує GPU (NVIDIA/AMD/Intel) через
+# DirectML; runtime-компоненти підписані Microsoft, тому працюють навіть
+# із увімкненим Smart App Control. На інших ОС — звичайний onnxruntime
+# (CPU; за потреби можна додати ort-gpu для CUDA).
+
+fastapi>=0.115,<1.0
+uvicorn[standard]>=0.30
+python-multipart>=0.0.9
+pillow>=10.4
+numpy>=1.26
+requests>=2.32
+onnxruntime-directml>=1.20; sys_platform == "win32"
+onnxruntime>=1.20; sys_platform != "win32"
