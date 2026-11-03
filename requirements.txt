@@ -10,5 +10,6 @@ python-multipart>=0.0.9
 pillow>=10.4
 numpy>=1.26
 requests>=2.32
+pywebview>=5.4          # нативне вікно (desktop.py); у браузерному режимі не використовується
 onnxruntime-directml>=1.20; sys_platform == "win32"
 onnxruntime>=1.20; sys_platform != "win32"

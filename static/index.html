@@ -59,6 +59,15 @@
         </select>
         <div class="hint muted">Якість: JPG/WEBP 95.</div>
       </div>
+      <div class="setting">
+        <label for="devSel">Пристрій обчислень</label>
+        <select id="devSel">
+          <option value="auto" selected>Авто — найшвидший доступний</option>
+          <option value="gpu">Відеокарта (GPU)</option>
+          <option value="cpu">Процесор (CPU)</option>
+        </select>
+        <div class="hint muted">GPU підходить для NVIDIA/AMD/Intel (DirectX). Поточний пристрій показано в шапці.</div>
+      </div>
       <button id="startBtn" class="btn primary big" type="button">Старт</button>
     </div>
   </section>

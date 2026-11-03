@@ -2,15 +2,36 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-STATIC_DIR = ROOT / "static"
+VERSION = "0.9.0"
+APP_TITLE = "Photo Upscale Studio"
+
+
+def _app_root() -> Path:
+    """Корінь для даних: поруч з кодом у розробці, %APPDATA% у .exe.
+
+    Заморожена програма не мусить писати дані в тимчасову папку
+    розпакування, тому моделі та сесії живуть у профілі користувача.
+    """
+    if getattr(sys, "frozen", False):
+        base = os.environ.get("APPDATA") or str(Path.home())
+        return Path(base) / "PhotoUpscaleStudio"
+    return Path(__file__).resolve().parent.parent
+
+
+def _static_root() -> Path:
+    """Папка інтерфейсу: у .exe вона лежить у розпакованих ресурсах."""
+    if getattr(sys, "frozen", False):
+        return Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent)) / "static"
+    return _app_root() / "static"
+
+
+ROOT = _app_root()
+STATIC_DIR = _static_root()
 MODELS_DIR = ROOT / "models"          # ваги моделей (завантажуються першого разу)
 DATA_DIR = ROOT / "data"              # сесії: завантажені фото, результати, перегляди
-
-VERSION = "1.0.0"
-APP_TITLE = "Photo Upscale Studio"
 
 # --- обмеження, зрозумілі користувачу ---
 MAX_PHOTOS = 5                                     # фото за одну сесію

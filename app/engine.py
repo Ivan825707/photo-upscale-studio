@@ -232,21 +232,45 @@ class Engine:
 
     def __init__(self) -> None:
         config.MODELS_DIR.mkdir(parents=True, exist_ok=True)
-        provs = _available_providers()
-        self.dml_possible = "DmlExecutionProvider" in provs
-        if self.dml_possible:
-            self.provider = "dml"
-            self.device_label = "GPU · DirectML"
-        elif "CUDAExecutionProvider" in provs:
-            self.provider = "cuda"
-            self.device_label = "GPU · CUDA"
-        else:
-            self.provider = "cpu"
-            self.device_label = f"CPU ({os.cpu_count() or 4} потоків)"
+        self.dml_possible = "DmlExecutionProvider" in _available_providers()
+        self.cuda_possible = "CUDAExecutionProvider" in _available_providers()
+        self.user_device_pref = "auto"   # auto | gpu | cpu (вибір з інтерфейсу)
+        self.provider: str = ""
+        self.device_label = ""
+        self._reselect_provider()
         self.dml_pick: dict[str, tuple[int, str]] = {}  # модель → (адаптер, файл)
         self.tile = config.DEVICE_TILE.get(self.provider, 384)
         self._sessions: dict[str, dict] = {}
         self._lock = threading.Lock()
+
+    def _reselect_provider(self) -> None:
+        """Обирає провайдер за бажанням користувача і наявністю бібліотек."""
+        pref = self.user_device_pref
+        if pref in ("auto", "gpu") and self.dml_possible:
+            self.provider = "dml"
+            self.device_label = "GPU · DirectML"
+        elif pref in ("auto", "gpu") and self.cuda_possible:
+            self.provider = "cuda"
+            self.device_label = "GPU · CUDA"
+        else:
+            self.provider = "cpu"
+            label = f"CPU ({os.cpu_count() or 4} потоків)"
+            if pref == "gpu":
+                label += " — GPU недоступний"
+            self.device_label = label
+
+    def set_device_pref(self, pref: str) -> str:
+        """Змінює бажаний пристрій (gpu/cpu/auto) і зриває кеш сесій."""
+        pref = pref if pref in ("auto", "gpu", "cpu") else "auto"
+        with self._lock:
+            changed = pref != self.user_device_pref or not self.dml_pick
+            self.user_device_pref = pref
+            if changed:
+                self.dml_pick.clear()
+                self._sessions.clear()
+                self._reselect_provider()
+                self.tile = config.DEVICE_TILE.get(self.provider, 384)
+        return self.device_label
 
     # ------------------------- сесії -------------------------
 

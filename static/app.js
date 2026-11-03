@@ -59,6 +59,11 @@ async function loadInfo() {
   }
 }
 
+// після вибору пристрою бейдж у шапці оновлюється наступним опитуванням
+function refreshDeviceBadge() {
+  setTimeout(loadInfo, 500);
+}
+
 /* ---------------- завантаження файлів ---------------- */
 
 function isAllowed(file) {
@@ -209,6 +214,8 @@ function refreshEditor() {
 async function startProcess() {
   if (state.processing || state.photos.size === 0) return;
   state.format = $("#fmtSel").value;
+  state.device = $("#devSel").value;
+  try { localStorage.setItem("pusDevice", state.device); } catch (_) {}
 
   const res = await fetch("/api/process", {
     method: "POST",
@@ -218,6 +225,7 @@ async function startProcess() {
       photo_ids: Array.from(state.photos.keys()),
       scale: state.scale,
       format: state.format,
+      device: state.device,
     }),
   }).catch(e => ({ ok: false, detail: "" + e }));
 
@@ -227,6 +235,8 @@ async function startProcess() {
     pushError(data.detail || d);
     return;
   }
+
+  refreshDeviceBadge();
 
   state.processing = true;
   $("#dropzone").classList.add("hidden");
@@ -424,6 +434,12 @@ function initEvents() {
   $("#scaleSlide").addEventListener("input", updateScaleUI);
   $("#startBtn").addEventListener("click", startProcess);
   $("#resetBtn").addEventListener("click", resetSession);
+
+  // збережений вибір пристрою
+  try {
+    const saved = localStorage.getItem("pusDevice");
+    if (saved) $("#devSel").value = saved;
+  } catch (_) {}
 }
 
 initEvents();

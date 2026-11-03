@@ -406,6 +406,9 @@ def create_app() -> FastAPI:
         scale = int(payload.get("scale") or 0)
         fmt = str(payload.get("format") or "")
         pids = list(payload.get("photo_ids") or [])
+        dev_pref = str(payload.get("device") or "auto")
+        if dev_pref not in ("auto", "gpu", "cpu"):
+            raise _err("Невідомий вибір пристрою обчислень.")
 
         if not (1 <= scale <= 8):
             raise _err("Коефіцієнт має бути в межах 1–8.")
@@ -437,6 +440,8 @@ def create_app() -> FastAPI:
                 ph.stage = "Черга…"
                 ph.error = ""
                 targets.append(ph)
+
+        eng.set_device_pref(dev_pref)
 
         for ph in targets:
             _run_photo(sess, ph, eng, runner)
