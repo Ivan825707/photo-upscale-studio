@@ -408,6 +408,28 @@ function resetSession() {
 
 /* ---------------- обробники подій ---------------- */
 
+// настільний режим (pywebview): href-завантаження у WebView2 ненадійні,
+// тому кнопки «Завантажити» перетворюються на нативний Save-діалог.
+// Ім'я файлу береться з заголовка Content-Disposition сервера.
+function hookDesktopDownloads() {
+  document.addEventListener("click", (e) => {
+    const api = window.pywebview && window.pywebview.api;
+    if (!api || !api.save_url) return;
+    const a = e.target.closest("a[download]");
+    if (!a || !a.getAttribute("href")) return;
+    e.preventDefault();
+    const href = a.getAttribute("href");
+    const aName = a.getAttribute("download");
+    api.save_url(href, aName && aName !== "download" ? aName : "")
+      .then(r => {
+        if (r === "cancelled") return;
+        if (String(r).startsWith("__")) pushError(String(r));
+      })
+      .catch(er => pushError("Не вдалося зберегти файл: " + (er && er.message
+        ? er.message : er)));
+  });
+}
+
 function initEvents() {
   const drop = $("#dropzone");
   const input = $("#fileInput");
@@ -440,6 +462,8 @@ function initEvents() {
     const saved = localStorage.getItem("pusDevice");
     if (saved) $("#devSel").value = saved;
   } catch (_) {}
+
+  hookDesktopDownloads();
 }
 
 initEvents();

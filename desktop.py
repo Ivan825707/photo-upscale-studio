@@ -43,6 +43,9 @@ def _log(msg: str) -> None:
         pass
 
 
+SERVER_PORT = 8560          # уточнюється в main(), читається в Api
+
+
 def _srv_run(srv, port: int) -> None:
     try:
         srv.run()
@@ -63,6 +66,52 @@ def _wait_url(url: str, timeout: float = 20.0) -> bool:
         except Exception:
             time.sleep(0.2)
     return False
+
+
+class Api:
+    """Місток між JS у вікні та Python: нативне збереження файлів.
+
+    У WebView2 (нативному вікні) href-завантаження можуть не спрацювати,
+    тому кнопки Завантажити ведуть сюди: файл тягнеться з локального
+    сервера і зберігається через звичайний діалог Windows.
+    """
+
+    def save_url(self, url: str, default_name: str = "") -> str:
+        import urllib.request
+        full = f"http://127.0.0.1:{SERVER_PORT}{url}"
+        try:
+            with urllib.request.urlopen(full, timeout=300) as resp:
+                data = resp.read()
+                suggested = default_name or ""          # з Content-Disposition
+                if not suggested:
+                    cd = resp.headers.get("Content-Disposition", "")
+                    if "filename=" in cd:
+                        suggested = cd.split("filename=", 1)[1] \
+                            .split(";", 1)[0].strip().strip('"*') \
+                            .strip('"') or ""
+        except Exception as exc:
+            _log(f"save_url: не вдалося отримати {full}: {exc}")
+            raise
+        if not suggested:
+            tail = url.rstrip("/").split("/")[-1]
+            suggested = tail if tail else "результат"
+        try:
+            folder = str(Path.home() / "Завантаження")
+            if not Path(folder).exists():
+                folder = str(Path.home())
+        except Exception:
+            folder = ""
+
+        result = webview.windows[0].create_file_dialog(
+            webview.SAVE_DIALOG, directory=folder, save_filename=suggested)
+        if not result:
+            return "cancelled"
+        path = result[0] if isinstance(result, (tuple, list)) else result
+        if not path:
+            return "cancelled"
+        with open(path, "wb") as f:
+            f.write(data)
+        return path
 
 
 def main() -> None:
@@ -89,6 +138,7 @@ def main() -> None:
 
     port = _pick_port(config.DEFAULT_PORT, config.MAX_PORT_ATTEMPTS)
     url = f"http://127.0.0.1:{port}/"
+    globals()["SERVER_PORT"] = port
 
     import uvicorn
     srv = uvicorn.Server(uvicorn.Config(
@@ -116,6 +166,7 @@ def main() -> None:
         height=840,
         min_size=(960, 640),
         background_color="#0b0d14",
+        js_api=Api(),
     )
     try:
         webview.start(icon=icon)
