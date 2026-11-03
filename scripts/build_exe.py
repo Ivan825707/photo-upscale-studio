@@ -1,10 +1,11 @@
-"""Збірка Photo Upscale Studio в .exe (PyInstaller, папка dist/PhotoUpscaleStudio).
+"""Збірка Photo Upscale Studio в .exe (PyInstaller, один файл).
 
     .\\.venv\\Scripts\\python.exe -m pip install pyinstaller
     .\\.venv\\Scripts\\python.exe scripts\\build_exe.py
 
-Результат: dist/PhotoUpscaleStudio/PhotoUpscaleStudio.exe (+ _internal).
-Розповсюджувати папку цілком (наприклад, zip), а не один файл.
+Результат: dist/PhotoUpscaleStudio.exe — один файл, який можна і до
+кореня репозиторію (GitHub приймає файли до 100 МБ), і окремо.
+Одноразове розпакування при запуску триває кілька секунд.
 """
 from __future__ import annotations
 
@@ -19,12 +20,12 @@ ROOT = Path(__file__).resolve().parent.parent
 DIST = ROOT / "dist"
 BUILD_DIR = ROOT / "build"
 
-APP = DIST / "PhotoUpscaleStudio" / "PhotoUpscaleStudio.exe"
+APP = DIST / "PhotoUpscaleStudio.exe"
+OUT_EXE = ROOT / "PhotoUpscaleStudio.exe"
 
 
 def main() -> None:
-    if shutil.which("pyinstaller", path=str(ROOT / ".venv" / "Scripts")) is None \
-            and not (ROOT / ".venv" / "Scripts" / "pyinstaller.exe").exists():
+    if not (ROOT / ".venv" / "Scripts" / "pyinstaller.exe").exists():
         print("PyInstaller не знайдено. Встановіть: pip install pyinstaller")
         sys.exit(1)
 
@@ -32,6 +33,7 @@ def main() -> None:
         sys.executable, "-m", "PyInstaller",
         "desktop.py",
         "--name", "PhotoUpscaleStudio",
+        "--onefile",                   # один файл без супутніх папок
         "--noconsole",                 # нативне вікно, без консолі
         "--icon", str(ROOT / "assets" / "app.ico"),
         "--add-data", f"{ROOT / 'static'};static",
@@ -53,13 +55,19 @@ def main() -> None:
     print(">>>", " ".join(args[1:]))
     subprocess.run(args, cwd=ROOT, check=True)
 
-    if APP.exists():
-        size = sum(f.stat().st_size for f in APP.parent.rglob("*")
-                   if f.is_file()) / 1024 / 1024
-        print(f"\nOK: {APP}  (усього ~{size:.0f} МБ)")
-    else:
+    if not APP.exists():
         print("Збірка не вдалася: exe не знайдено.")
         sys.exit(1)
+
+    size = APP.stat().st_size / 1024 / 1024
+    print(f"\nOK: {APP}  (~{size:.0f} МБ)")
+
+    shutil.copyfile(APP, OUT_EXE)
+    print(f"скопійовано в {OUT_EXE} для коммита у репозиторій")
+
+    if size >= 100:
+        print("УВАГА: файл >100 МБ — GitHub не прийме його без LFS.")
+        sys.exit(2)
 
 
 if __name__ == "__main__":
